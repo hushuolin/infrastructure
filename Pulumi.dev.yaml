@@ -4,6 +4,7 @@ config:
   aws:region: us-east-1
   infrastructure:prefix: cfpb
   infrastructure:cidrBlock: 10.0.0.0/16
-  infrastructure:cidrPrefixLength: "24"
-  infrastructure:numOfSubnets: "2"
+  infrastructure:cidrPrefixLength: 24
+  infrastructure:numOfSubnets: 2
   infrastructure:region: us-east-1
+  infrastructure:numOfBrokers: 2
