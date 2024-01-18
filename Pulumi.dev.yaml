@@ -1,3 +1,9 @@
 encryptionsalt: v1:nOsleXAGSsg=:v1:q1jsKnkEOUumlOu5:0IMws6ipg/yxl6yABmuIt7nw3Nw8UQ==
 config:
+  aws:profile: cfpb_project
   aws:region: us-east-1
+  infrastructure:prefix: cfpb
+  infrastructure:cidrBlock: 10.0.0.0/16
+  infrastructure:cidrPrefixLength: "24"
+  infrastructure:numOfSubnets: "2"
+  infrastructure:region: us-east-1
