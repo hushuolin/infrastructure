@@ -132,7 +132,7 @@ msk_cluster = aws.msk.Cluster(f"{prefix}-msk-cluster",
     number_of_broker_nodes=numOfBrokers,
     broker_node_group_info=aws.msk.ClusterBrokerNodeGroupInfoArgs(
         instance_type="kafka.m5.large",
-        client_subnets=[subnet.id for subnet in public_subnets],
+        client_subnets=[subnet.id for subnet in private_subnets],
         security_groups=[msk_security_group.id],
         storage_info=aws.msk.ClusterBrokerNodeGroupInfoStorageInfoArgs(
             ebs_storage_info=aws.msk.ClusterBrokerNodeGroupInfoStorageInfoEbsStorageInfoArgs(
@@ -164,6 +164,44 @@ msk_role = aws.iam.Role(f"{prefix}-msk-role",
 msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-policy-attachment",
     role=msk_role.name,
     policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
+
+# --- Lambda Function ---
+
+# IAM role for the Lambda function
+lambda_role = aws.iam.Role("lambdaRole",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "lambda.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+        }]
+    }))
+
+# Attach the policy to the role
+aws.iam.RolePolicyAttachment("sns-lambda-attachment",
+    role=lambda_role.name,
+    policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
+
+aws.iam.RolePolicyAttachment("cloudwatch-lambda-attachment",
+    role=lambda_role.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
+
+# Assuming your Lambda code is zipped in 'lambda_function.zip'
+lambdaPath = config.require("lambdaPath")
+
+lambda_function = aws.lambda_.Function("myLambdaFunction",
+    role=lambda_role.arn,
+    runtime="python3.8",  
+    handler="fetch_consumer_complaints.lambda_handler",
+    timeout=100,
+    code=pulumi.FileArchive(lambdaPath),
+    memory_size=1024,
+    environment=aws.lambda_.FunctionEnvironmentArgs(
+        variables={
+
+        }) 
+    )
 
 # --- Outputs ---
 
