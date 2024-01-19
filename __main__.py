@@ -107,10 +107,10 @@ msk_security_group = aws.ec2.SecurityGroup(f"{prefix}-msk-sg",
     ingress=[
         aws.ec2.SecurityGroupIngressArgs(
             description='Kafka',
-            from_port=9092,
-            to_port=9092,
+            from_port=9094,
+            to_port=9094,
             protocol='tcp',
-            cidr_blocks=[vpc.cidr_block]
+            cidr_blocks=['0.0.0.0/0']
         ),
     ],
     egress=[
@@ -132,7 +132,7 @@ msk_cluster = aws.msk.Cluster(f"{prefix}-msk-cluster",
     number_of_broker_nodes=numOfBrokers,
     broker_node_group_info=aws.msk.ClusterBrokerNodeGroupInfoArgs(
         instance_type="kafka.m5.large",
-        client_subnets=[subnet.id for subnet in private_subnets],
+        client_subnets=[subnet.id for subnet in public_subnets],
         security_groups=[msk_security_group.id],
         storage_info=aws.msk.ClusterBrokerNodeGroupInfoStorageInfoArgs(
             ebs_storage_info=aws.msk.ClusterBrokerNodeGroupInfoStorageInfoEbsStorageInfoArgs(
