@@ -14,6 +14,7 @@ cidr_first_two_octets = cidrBlock.split('.')[0] + '.' + cidrBlock.split('.')[1]
 cidr_prefix_length = config.require_int("cidrPrefixLength")
 region = config.require("region")
 numOfBrokers = config.require("numOfBrokers")
+sshName = config.require("sshName")
 
 # --- Network Setup ---
 
@@ -31,7 +32,7 @@ igw = aws.ec2.InternetGateway(f"{prefix}-igw",
         "Name": f"{prefix}-igw",
     })
 
-# Create numOfSubnets public and private subnets
+# Create public and private subnets
 public_subnets = []
 private_subnets = []
 # Fetch available availability zones
@@ -41,7 +42,6 @@ max_azs = len(azs.names)
 numOfSubnets = min(max_azs, numOfSubnets)
 for i in range(numOfSubnets):
     az = f"{region}{chr(97+i)}"  # This will give us '{us-east-1}{a}', '{us-east-1}{b}', '{us-east-1}{c} ....'
-    # Create public subnets
     public_subnet = aws.ec2.Subnet(f"{prefix}-public-subnet-{az}",
         vpc_id=vpc.id,
         cidr_block=f"{cidr_first_two_octets}.{i*2}.0/{cidr_prefix_length}",
@@ -52,7 +52,7 @@ for i in range(numOfSubnets):
         }
     )
     public_subnets.append(public_subnet)
-    # Create private subnets
+
     private_subnet = aws.ec2.Subnet(f"{prefix}-private-subnet-{az}",
         vpc_id=vpc.id,
         cidr_block=f"{cidr_first_two_octets}.{i*2+1}.0/{cidr_prefix_length}",
@@ -63,28 +63,26 @@ for i in range(numOfSubnets):
     )
     private_subnets.append(private_subnet)
 
-# Create public route table
+# Create public and private route tables
 public_rt = aws.ec2.RouteTable(f"{prefix}-public-rt",
     vpc_id=vpc.id,
     tags={
         "Name": f"{prefix}-public-rt",
     })
 
-# # Associate public subnets with the public route table
-for index, subnet in enumerate(public_subnets):
-    aws.ec2.RouteTableAssociation(f"{prefix}-public-rta-{index}",
-        subnet_id=subnet.id,
-        route_table_id=public_rt.id,
-    )
-
-# Create private route table
 private_rt = aws.ec2.RouteTable(f"{prefix}-private-rt",
     vpc_id=vpc.id,
     tags={
         "Name": f"{prefix}-private-rt",
     })
 
-# Associate private subnets with the private route table
+# Associate subnets with route tables
+for index, subnet in enumerate(public_subnets):
+    aws.ec2.RouteTableAssociation(f"{prefix}-public-rta-{index}",
+        subnet_id=subnet.id,
+        route_table_id=public_rt.id,
+    )
+
 for index, subnet in enumerate(private_subnets):
     aws.ec2.RouteTableAssociation(f"{prefix}-private-rta-{index}",
         subnet_id=subnet.id,
@@ -98,11 +96,9 @@ aws.ec2.Route("public-route",
     gateway_id=igw.id,
 )
 
-# --- EC2 Setup ---
-
 # --- MSK Setup ---
 
-### Security group for MSK
+# Security group for MSK
 msk_security_group = aws.ec2.SecurityGroup(f"{prefix}-msk-sg",
     vpc_id=vpc.id,
     description='Security Group for MSK',
@@ -167,6 +163,73 @@ msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-policy-
     role=msk_role.name,
     policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
 
+# --- EC2 Setup for MSK Client ---
+# Create an IAM role for the EC2 client
+ec2_role = aws.iam.Role(f"{prefix}-ec2-role",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ec2.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }]
+    }))
+
+# Attach the policy to the role
+ec2_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-ec2-role-policy-attachment",
+    role=ec2_role.name,
+    policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
+
+# Security group for the EC2 client machine with SSH access
+ec2_sg = aws.ec2.SecurityGroup(f"{prefix}-client-sg",
+    vpc_id=vpc.id,
+    description='Security Group for MSK Client',
+    ingress=[
+        # SSH access rule
+        aws.ec2.SecurityGroupIngressArgs(
+            description='SSH access',
+            from_port=22,
+            to_port=22,
+            protocol='tcp',
+            cidr_blocks=['0.0.0.0/0']  
+        ),
+    ],
+    egress=[
+        aws.ec2.SecurityGroupEgressArgs(
+            from_port=0,
+            to_port=0,
+            protocol='-1',
+            cidr_blocks=['0.0.0.0/0']
+        )
+    ],
+    tags={
+        "Name": f"{prefix}-client-sg",
+    })
+
+# Create an EC2 instance profile for the IAM role
+ec2_instance_profile = aws.iam.InstanceProfile(f"{prefix}-ec2-instance-profile",
+    role=ec2_role.name)
+
+# Select the appropriate AMI for Amazon Linux 2
+ami = aws.ec2.get_ami(most_recent=True,
+    owners=["amazon"],
+    filters=[{"name": "name", "values": ["amzn2-ami-hvm-*-x86_64-gp2"]}])
+
+# Create an EC2 instance for the MSK client
+msk_client_instance = aws.ec2.Instance(f"{prefix}-client",
+    instance_type="t2.micro",
+    ami=ami.id,
+    key_name=sshName,
+    subnet_id=public_subnets[0].id,
+    iam_instance_profile=ec2_instance_profile.name,
+    vpc_security_group_ids=[ec2_sg.id],
+    tags={
+        "Name": f"{prefix}-MSKTutorialClient",
+    })
+
+
 # --- Lambda Function ---
 
 # # IAM role for the Lambda function
@@ -211,4 +274,8 @@ msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-policy-
 pulumi.export('vpc_id', vpc.id)
 pulumi.export('msk_cluster_arn', msk_cluster.arn)
 pulumi.export('msk_cluster_endpoint', msk_cluster.bootstrap_brokers_tls)
+# pulumi.export('client_instance_id', msk_client_instance.id)
+# pulumi.export('client_instance_public_ip', msk_client_instance.public_ip)
+# pulumi.export('client_instance_public_dns', msk_client_instance.public_dns)
+
 
