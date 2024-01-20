@@ -96,6 +96,78 @@ aws.ec2.Route("public-route",
     gateway_id=igw.id,
 )
 
+# --- EC2 Setup for MSK Client ---
+# Create an IAM role for the EC2 client
+ec2_role = aws.iam.Role(f"{prefix}-ec2-role",
+    assume_role_policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ec2.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }]
+    }))
+
+# Attach the policy to the role
+ec2_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-ec2-role-policy-attachment",
+    role=ec2_role.name,
+    policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
+
+ec2_msk_cluster_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-ec2-msk-cluster-policy-attachment",
+    role=ec2_role.name,
+    policy_arn="arn:aws:iam::742465305217:policy/MSK_cluster")
+
+
+# Security group for the EC2 client machine with SSH access
+ec2_sg = aws.ec2.SecurityGroup(f"{prefix}-client-sg",
+    vpc_id=vpc.id,
+    description='Security Group for MSK Client',
+    ingress=[
+        # SSH access rule
+        aws.ec2.SecurityGroupIngressArgs(
+            description='SSH access',
+            from_port=22,
+            to_port=22,
+            protocol='tcp',
+            cidr_blocks=['0.0.0.0/0']  
+        ),
+    ],
+    egress=[
+        aws.ec2.SecurityGroupEgressArgs(
+            from_port=0,
+            to_port=0,
+            protocol='-1',
+            cidr_blocks=['0.0.0.0/0']
+        )
+    ],
+    tags={
+        "Name": f"{prefix}-client-sg",
+    })
+
+# Create an EC2 instance profile for the IAM role
+ec2_instance_profile = aws.iam.InstanceProfile(f"{prefix}-ec2-instance-profile",
+    role=ec2_role.name)
+
+# Select the appropriate AMI for Amazon Linux 2
+ami = aws.ec2.get_ami(most_recent=True,
+    owners=["amazon"],
+    filters=[{"name": "name", "values": ["amzn2-ami-hvm-*-x86_64-gp2"]}])
+
+# Create an EC2 instance for the MSK client
+msk_client_instance = aws.ec2.Instance(f"{prefix}-client",
+    instance_type="t2.micro",
+    ami=ami.id,
+    key_name=sshName,
+    subnet_id=public_subnets[0].id,
+    iam_instance_profile=ec2_instance_profile.name,
+    vpc_security_group_ids=[ec2_sg.id],
+    tags={
+        "Name": f"{prefix}-MSKTutorialClient",
+    })
+
+
 # --- MSK Setup ---
 
 # Security group for MSK
@@ -105,10 +177,10 @@ msk_security_group = aws.ec2.SecurityGroup(f"{prefix}-msk-sg",
     ingress=[
         aws.ec2.SecurityGroupIngressArgs(
             description='Kafka',
-            from_port=9094,
-            to_port=9094,
+            from_port=9098,
+            to_port=9098,
             protocol='tcp',
-            cidr_blocks=['0.0.0.0/0']
+            security_groups=[ec2_sg.id]
         ),
     ],
     egress=[
@@ -159,75 +231,13 @@ msk_role = aws.iam.Role(f"{prefix}-msk-role",
     }))
 
 # Attach MSK policy to MSK role
-msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-policy-attachment",
+msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-role-policy-attachment",
     role=msk_role.name,
     policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
 
-# --- EC2 Setup for MSK Client ---
-# Create an IAM role for the EC2 client
-ec2_role = aws.iam.Role(f"{prefix}-ec2-role",
-    assume_role_policy=json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "ec2.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        }]
-    }))
-
-# Attach the policy to the role
-ec2_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-ec2-role-policy-attachment",
-    role=ec2_role.name,
-    policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
-
-# Security group for the EC2 client machine with SSH access
-ec2_sg = aws.ec2.SecurityGroup(f"{prefix}-client-sg",
-    vpc_id=vpc.id,
-    description='Security Group for MSK Client',
-    ingress=[
-        # SSH access rule
-        aws.ec2.SecurityGroupIngressArgs(
-            description='SSH access',
-            from_port=22,
-            to_port=22,
-            protocol='tcp',
-            cidr_blocks=['0.0.0.0/0']  
-        ),
-    ],
-    egress=[
-        aws.ec2.SecurityGroupEgressArgs(
-            from_port=0,
-            to_port=0,
-            protocol='-1',
-            cidr_blocks=['0.0.0.0/0']
-        )
-    ],
-    tags={
-        "Name": f"{prefix}-client-sg",
-    })
-
-# Create an EC2 instance profile for the IAM role
-ec2_instance_profile = aws.iam.InstanceProfile(f"{prefix}-ec2-instance-profile",
-    role=ec2_role.name)
-
-# Select the appropriate AMI for Amazon Linux 2
-ami = aws.ec2.get_ami(most_recent=True,
-    owners=["amazon"],
-    filters=[{"name": "name", "values": ["amzn2-ami-hvm-*-x86_64-gp2"]}])
-
-# Create an EC2 instance for the MSK client
-msk_client_instance = aws.ec2.Instance(f"{prefix}-client",
-    instance_type="t2.micro",
-    ami=ami.id,
-    key_name=sshName,
-    subnet_id=public_subnets[0].id,
-    iam_instance_profile=ec2_instance_profile.name,
-    vpc_security_group_ids=[ec2_sg.id],
-    tags={
-        "Name": f"{prefix}-MSKTutorialClient",
-    })
+msk_cluster_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-cluster-policy-attachment",
+    role=msk_role.name,
+    policy_arn="arn:aws:iam::742465305217:policy/MSK_cluster")
 
 
 # --- Lambda Function ---
