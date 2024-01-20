@@ -98,6 +98,8 @@ aws.ec2.Route("public-route",
     gateway_id=igw.id,
 )
 
+# --- EC2 Setup ---
+
 # --- MSK Setup ---
 
 ### Security group for MSK
@@ -167,41 +169,42 @@ msk_role_policy_attachment = aws.iam.RolePolicyAttachment(f"{prefix}-msk-policy-
 
 # --- Lambda Function ---
 
-# IAM role for the Lambda function
-lambda_role = aws.iam.Role("lambdaRole",
-    assume_role_policy=json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Principal": {"Service": "lambda.amazonaws.com"},
-            "Action": "sts:AssumeRole"
-        }]
-    }))
+# # IAM role for the Lambda function
+# lambda_role = aws.iam.Role("lambdaRole",
+#     assume_role_policy=json.dumps({
+#         "Version": "2012-10-17",
+#         "Statement": [{
+#             "Effect": "Allow",
+#             "Principal": {"Service": "lambda.amazonaws.com"},
+#             "Action": "sts:AssumeRole"
+#         }]
+#     }))
 
-# Attach the policy to the role
-aws.iam.RolePolicyAttachment("sns-lambda-attachment",
-    role=lambda_role.name,
-    policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
+# # Attach the policy to the role
+# aws.iam.RolePolicyAttachment("sns-lambda-attachment",
+#     role=lambda_role.name,
+#     policy_arn="arn:aws:iam::aws:policy/AmazonMSKFullAccess")
 
-aws.iam.RolePolicyAttachment("cloudwatch-lambda-attachment",
-    role=lambda_role.name,
-    policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
+# aws.iam.RolePolicyAttachment("cloudwatch-lambda-attachment",
+#     role=lambda_role.name,
+#     policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole")
 
-# Assuming your Lambda code is zipped in 'lambda_function.zip'
-lambdaPath = config.require("lambdaPath")
+# # Assuming your Lambda code is zipped in 'lambda_function.zip'
+# lambdaPath = config.require("lambdaPath")
 
-lambda_function = aws.lambda_.Function("myLambdaFunction",
-    role=lambda_role.arn,
-    runtime="python3.8",  
-    handler="fetch_consumer_complaints.lambda_handler",
-    timeout=100,
-    code=pulumi.FileArchive(lambdaPath),
-    memory_size=1024,
-    environment=aws.lambda_.FunctionEnvironmentArgs(
-        variables={
-
-        }) 
-    )
+# lambda_function = aws.lambda_.Function("myLambdaFunction",
+#     role=lambda_role.arn,
+#     runtime="python3.8",  
+#     handler="fetch_consumer_complaints.lambda_handler",
+#     timeout=100,
+#     code=pulumi.FileArchive(lambdaPath),
+#     memory_size=1024,
+#     environment=aws.lambda_.FunctionEnvironmentArgs(
+#         variables={
+#             "msk_bootstrap_servers": msk_cluster.bootstrap_brokers_tls,
+#             "msk_cluster_arn": msk_cluster.arn
+#         }) 
+#     )
 
 # --- Outputs ---
 

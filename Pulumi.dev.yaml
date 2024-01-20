@@ -8,4 +8,4 @@ config:
   infrastructure:numOfSubnets: 2
   infrastructure:region: us-east-1
   infrastructure:numOfBrokers: 2
-  infrastructure:lambdaPath: /Users/shuolinhu/workspace/cfpb_project/serverless/lambda_function.zip
+  infrastructure:lambdaPath: /Users/shuolinhu/workspace/cfpb_project/cfpb-serveless/lambda_function.zip
